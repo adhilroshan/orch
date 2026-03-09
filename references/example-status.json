@@ -1,0 +1,55 @@
+{
+  "meta": {
+    "project": "TaskFlow API",
+    "last_updated": "2026-03-03T10:00:00Z",
+    "agents": {
+      "infra": "Raj Patel -- Infra. Pragmatic and direct.",
+      "api":   "Sara Kim -- Core API. Methodical and precise.",
+      "ui":    "Nina Osei -- Frontend. Strong accessibility instincts."
+    },
+    "statuses": ["ready", "in_progress", "complete", "blocked", "failed"]
+  },
+
+  "INFRA-1": {
+    "title": "Scaffold project structure and Docker environment",
+    "agent": "infra",
+    "phase": 1,
+    "status": "complete",
+    "depends_on": [],
+    "output_files": ["docker-compose.yml", "Dockerfile", ".env.example"],
+    "definition_of_done": "docker compose up starts all services with no errors",
+    "test_command": "docker compose config --quiet",
+    "notes": "",
+    "started_at": "2026-03-03T09:00:00Z",
+    "completed_at": "2026-03-03T09:45:00Z",
+    "duration_ms": 2700000
+  },
+
+  "API-1": {
+    "title": "User authentication endpoints",
+    "agent": "api",
+    "phase": 1,
+    "status": "in_progress",
+    "depends_on": [],
+    "output_files": ["src/routes/auth.py", "src/models/user.py"],
+    "definition_of_done": "POST /auth/register and POST /auth/login return correct tokens",
+    "test_command": "pytest tests/test_auth.py",
+    "notes": "",
+    "started_at": "2026-03-03T10:00:00Z",
+    "completed_at": null
+  },
+
+  "UI-1": {
+    "title": "Mock API for frontend development",
+    "agent": "ui",
+    "phase": 1,
+    "status": "ready",
+    "depends_on": [],
+    "output_files": ["frontend/src/mocks/handlers.ts"],
+    "definition_of_done": "All planned endpoints mocked with msw",
+    "test_command": "npm run test:mocks",
+    "notes": "",
+    "started_at": null,
+    "completed_at": null
+  }
+}
