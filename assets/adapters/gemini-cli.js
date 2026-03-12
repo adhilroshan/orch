@@ -1,25 +1,28 @@
 'use strict';
 
 /**
- * Adapter: opencode
+ * Adapter: gemini-cli
  *
- * Launches OpenCode (`opencode` CLI) to work on a task.
+ * Launches Google Gemini CLI (`gemini` command) to work on a task.
+ *
+ * Install:  npm install -g @google/gemini-cli
+ * Auth:     Run `gemini` once — it opens browser OAuth and caches the token.
  *
  * PERMISSION HANDLING
  * ───────────────────
- * OpenCode respects an OPENCODE_INITIAL_PROMPT env var for interactive mode
- * and `opencode run <prompt>` for headless mode.
+ * Gemini CLI trusts the local user by default and does not show per-action
+ * permission dialogs. No special flags needed for headless mode.
  *
- * To skip confirmation dialogs, set "autoApprove": true in config,
- * which passes --auto-approve.
+ * If you see "Sandbox restricted" warnings, add "yolo": true to config
+ * which passes --yolo (skip all sandbox confirmations).
  *
  * Config (.orch/config.json):
- *   "opencode": {
- *     "executable":   "opencode",
- *     "headless":     true,
- *     "autoApprove":  true,
- *     "model":        "anthropic/claude-sonnet-4-5",
- *     "flags":        []
+ *   "gemini-cli": {
+ *     "executable": "gemini",
+ *     "model":      "gemini-2.5-pro",
+ *     "headless":   true,
+ *     "yolo":       false,
+ *     "flags":      []
  *   }
  */
 
@@ -29,41 +32,40 @@ const path                       = require('node:path');
 const { buildPrompt, readBrief } = require('./prompt-builder');
 
 module.exports = {
-  name: 'opencode',
-  description: 'Launches OpenCode (opencode CLI) — headless via `opencode run`',
+  name: 'gemini-cli',
+  description: 'Launches Google Gemini CLI (gemini) — headless via -p flag',
 
   launch(context) {
     const { taskId, agentName, workDir, briefPath, orchCliPath, doneCmd, config = {} } = context;
 
-    const executable   = config.executable  || 'opencode';
-    const extraFlags   = config.flags       || [];
-    const headless     = config.headless    === true;
-    const autoApprove  = config.autoApprove === true;
-    const model        = config.model;
+    const executable = config.executable || 'gemini';
+    const extraFlags = config.flags      || [];
+    const headless   = config.headless   === true;
+    const model      = config.model;
+    const yolo       = config.yolo       === true;
 
     const prompt = buildPrompt({
       taskId, agentName, orchCliPath, doneCmd, headless,
       brief: readBrief(briefPath),
     });
 
-    const approveFlags = autoApprove ? ['--auto-approve'] : [];
-    const modelFlags   = model ? ['--model', model] : [];
+    const modelFlags = model ? ['--model', model] : [];
+    const yoloFlags  = yolo  ? ['--yolo']         : [];
 
     let child;
     if (headless) {
       const logPath   = mkLogPath(orchCliPath, taskId);
       const logStream = fs.openSync(logPath, 'a');
-      // opencode run "<prompt>"  — non-interactive
-      child = spawn(executable, [...approveFlags, ...modelFlags, ...extraFlags, 'run', prompt], {
+      // gemini -p "<prompt>"  — non-interactive one-shot
+      child = spawn(executable, [...modelFlags, ...yoloFlags, ...extraFlags, '-p', prompt], {
         cwd: workDir, detached: true,
         stdio: ['ignore', logStream, logStream],
       });
     } else {
-      // Interactive: seed first message via env var
-      child = spawn(executable, [...approveFlags, ...modelFlags, ...extraFlags], {
+      // Interactive: gemini opens a chat session; --prompt seeds the first message
+      child = spawn(executable, [...modelFlags, ...yoloFlags, ...extraFlags, '--prompt', prompt], {
         cwd: workDir, detached: true, stdio: 'inherit',
         shell: process.platform === 'win32',
-        env: { ...process.env, OPENCODE_INITIAL_PROMPT: prompt },
       });
     }
     child.unref();

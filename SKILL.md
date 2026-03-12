@@ -98,3 +98,6 @@ node .orch/cli.js --notes <ID>      # Read notes for a task
 ```
 
 Completion commits use the format `<agent>(<TASK-ID>): <task title>`.
+node .orch/cli.js --spawn-child <ID> --title "..." --agent "..." --files "a.js" [--adapter <n>]
+node .orch/cli.js --children <ID>      # List children and their statuses
+node .orch/cli.js --await-children <ID> # Block until all children settle (exit 0/1)

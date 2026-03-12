@@ -2,86 +2,96 @@
 
 /**
  * Adapter: claude-code
- * Launches a Claude Code session (`claude` CLI) to work on a task.
  *
- * Modes:
- *   headless: false (default) — opens an interactive Claude Code session
- *             in the task workspace. The agent reads MISSION_BRIEF.md.
- *   headless: true            — runs `claude --print <prompt>` as a
- *             background process. Stdout is piped to the task notes.
+ * Launches Claude Code (`claude` CLI) to work on a task.
+ *
+ * PERMISSION HANDLING
+ * ───────────────────
+ * Claude Code shows "Allow bash?" prompts in interactive mode.
+ * In headless mode these block forever — use one of:
+ *
+ *   allowedTools: ["bash","read","write","edit"]
+ *     Passes --allowedTools bash,read,write,edit  (recommended)
+ *
+ *   skipPermissions: true
+ *     Passes --dangerously-skip-permissions  (CI / sandboxed only)
+ *
+ * Config (.orch/config.json):
+ *   "claude-code": {
+ *     "executable":      "claude",
+ *     "headless":        true,
+ *     "allowedTools":    ["bash","read","write","edit"],
+ *     "skipPermissions": false,
+ *     "model":           "claude-sonnet-4-5",
+ *     "flags":           []
+ *   }
  */
 
-'use strict';
-
-const { spawn } = require('node:child_process');
-const fs = require('node:fs');
-const path = require('node:path');
+const { spawn }                  = require('node:child_process');
+const fs                         = require('node:fs');
+const path                       = require('node:path');
+const { buildPrompt, readBrief } = require('./prompt-builder');
 
 module.exports = {
   name: 'claude-code',
-  description: 'Launches Claude Code (claude CLI) to work on a task',
+  description: 'Launches Claude Code (claude CLI) — supports headless + permission flags',
 
   launch(context) {
     const { taskId, agentName, workDir, briefPath, orchCliPath, doneCmd, config = {} } = context;
 
-    const executable = config.executable || 'claude';
-    const extraFlags = config.flags || [];
-    const headless = config.headless === true;
+    const executable   = config.executable      || 'claude';
+    const extraFlags   = config.flags           || [];
+    const headless     = config.headless        === true;
+    const skipPerms    = config.skipPermissions === true;
+    const allowedTools = config.allowedTools    || [];
+    const model        = config.model;
 
-    const brief = fs.existsSync(briefPath) ? fs.readFileSync(briefPath, 'utf8') : '';
+    const prompt = buildPrompt({
+      taskId, agentName, orchCliPath, doneCmd, headless,
+      brief: readBrief(briefPath),
+    });
 
-    const prompt = [
-      `You are ${agentName}, an AI agent working on task ${taskId}.`,
-      ``,
-      `--- MISSION BRIEF ---`,
-      brief,
-      `--- END BRIEF ---`,
-      ``,
-      `Work through the task described above. Edit only the files listed under`,
-      `"Authorized Files". When you have completed ALL objectives and the`,
-      `Definition of Done is satisfied, run this exact command:`,
-      ``,
-      `  ${doneCmd}`,
-      ``,
-      `Do NOT run that command until the work is truly finished.`,
-    ].join('\n');
+    // ── Permission flags ──────────────────────────────────────────────────
+    const permFlags = skipPerms
+      ? ['--dangerously-skip-permissions']
+      : allowedTools.length > 0
+        ? ['--allowedTools', allowedTools.join(',')]
+        : [];
+
+    const modelFlags = model ? ['--model', model] : [];
 
     let child;
-
     if (headless) {
-      // Non-interactive: pipe output to a log file in .orch/
-      const logDir = path.join(path.dirname(orchCliPath), 'spawn-logs');
-      fs.mkdirSync(logDir, { recursive: true });
-      const logPath = path.join(logDir, `${taskId}.log`);
+      const logPath   = mkLogPath(orchCliPath, taskId);
       const logStream = fs.openSync(logPath, 'a');
-
-      child = spawn(executable, [...extraFlags, '--print', prompt], {
-        cwd: workDir,
-        detached: true,
+      child = spawn(executable, [...permFlags, ...modelFlags, ...extraFlags, '--print', prompt], {
+        cwd: workDir, detached: true,
         stdio: ['ignore', logStream, logStream],
       });
-      child.unref();
     } else {
-      // Interactive: open a new process that the user can see / interact with
-      child = spawn(executable, [...extraFlags, prompt], {
-        cwd: workDir,
-        detached: true,
-        stdio: 'inherit',
+      child = spawn(executable, [...permFlags, ...modelFlags, ...extraFlags, prompt], {
+        cwd: workDir, detached: true, stdio: 'inherit',
         shell: process.platform === 'win32',
       });
-      child.unref();
     }
+    child.unref();
 
     return { pid: child.pid, headless, executable };
   },
 
-  check(_context, spawnData) {
-    if (!spawnData?.pid) return 'unknown';
-    try {
-      process.kill(spawnData.pid, 0);
-      return 'running';
-    } catch {
-      return 'done';
-    }
+  check(_ctx, spawnData) {
+    return pidAlive(spawnData?.pid);
   },
 };
+
+function mkLogPath(orchCliPath, taskId) {
+  const dir = path.join(path.dirname(orchCliPath), 'spawn-logs');
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${taskId}.log`);
+}
+
+function pidAlive(pid) {
+  if (!pid) return 'unknown';
+  try { process.kill(pid, 0); return 'running'; }
+  catch { return 'done'; }
+}

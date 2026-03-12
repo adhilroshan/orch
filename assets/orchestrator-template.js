@@ -607,3 +607,163 @@ if (typeof module !== 'undefined') {
     afterStatusMutation,
   };
 }
+
+
+// ─── Interrupt Handling ───────────────────────────────────────────────────────
+//
+// Agents running headless can't ask questions interactively.
+// Instead they call --question or --fail to surface blockers to the dashboard.
+//
+// New status: "waiting_input"
+//   An agent has written QUESTIONS.md and is paused waiting for a human answer.
+//   It does NOT count as "blocked" (dependencies not met) — it's a different state.
+//   The human runs --answer <taskId> "<answer>" to inject the answer and resume.
+//
+// Dashboard changes:
+//   - waiting_input tasks shown in a "NEEDS ATTENTION" section
+//   - --question surfaces the question text on the dashboard immediately
+//
+// CLI additions:
+//   --question  <taskId> "<summary>"  Set task to waiting_input, log the question
+//   --answer    <taskId> "<answer>"   Write answer to QUESTIONS.md, resume task
+//   --attention                       Show only tasks needing human input
+
+const STATUS_COLORS_EXTENDED = {
+  ...STATUS_COLORS,
+  waiting_input: '\x1b[35m',  // magenta — stands out, not an error
+};
+
+/**
+ * cmdQuestion(taskId, summary)
+ *
+ * Called BY the agent (via shell) when it has a question it can't answer.
+ * Sets status → waiting_input, writes to the notes file, prints a banner.
+ */
+function cmdQuestion(taskId, summary) {
+  const data = loadStatus();
+  const task = getTask(data, taskId);
+
+  if (!['in_progress', 'ready'].includes(task.status)) {
+    console.error(`${SYM.FAIL} Task ${taskId} is "${task.status}" — can only ask questions when in_progress or ready.`);
+    process.exit(1);
+  }
+
+  task.status     = 'waiting_input';
+  task.blocked_at = ts();
+
+  // Append to the task's note file
+  ensureDir(NOTES_DIR);
+  const noteFile = path.join(NOTES_DIR, `${taskId}.md`);
+  const noteText = `[QUESTION] ${ts()}\n${summary}\n\nSee QUESTIONS.md in the task workspace for details.\n`;
+  fs.appendFileSync(noteFile, '\n---\n' + noteText, 'utf8');
+  task.notes = (task.notes || '') + `\n[QUESTION] ${summary}`;
+
+  saveStatus(data);
+  log('QUESTION', taskId, summary);
+
+  console.log(`\n${'\x1b[35m'}[?]     WAITING FOR INPUT${COLORS.reset}`);
+  console.log(`  Task:     ${taskId}`);
+  console.log(`  Question: ${summary}`);
+  console.log(`  Answer:   node .orch/cli.js --answer ${taskId} "<your answer>"\n`);
+}
+
+/**
+ * cmdAnswer(taskId, answer)
+ *
+ * Human provides an answer. Writes it to QUESTIONS.md in the workspace,
+ * re-sets status to in_progress, and re-spawns the agent.
+ */
+function cmdAnswer(taskId, answer) {
+  const data = loadStatus();
+  const task = getTask(data, taskId);
+
+  if (task.status !== 'waiting_input') {
+    console.error(`${SYM.FAIL} Task ${taskId} is not waiting for input (status: "${task.status}").`);
+    process.exit(1);
+  }
+
+  // Find the workspace and write the answer into QUESTIONS.md
+  const worktreePath = path.join(WORKTREE_DIR, taskId);
+  const workDir      = fs.existsSync(worktreePath) ? worktreePath : ROOT;
+  const questionsFile = path.join(workDir, 'QUESTIONS.md');
+
+  const answerBlock = `\n---\n## Human Answer — ${ts()}\n\n${answer}\n\nYou may now continue working. Run --done when finished.\n`;
+  if (fs.existsSync(questionsFile)) {
+    fs.appendFileSync(questionsFile, answerBlock, 'utf8');
+  } else {
+    fs.writeFileSync(questionsFile, `# Questions & Answers for ${taskId}\n${answerBlock}`, 'utf8');
+  }
+
+  // Append to notes
+  ensureDir(NOTES_DIR);
+  const noteFile = path.join(NOTES_DIR, `${taskId}.md`);
+  fs.appendFileSync(noteFile, `\n---\n[ANSWER] ${ts()}\n${answer}\n`, 'utf8');
+  task.notes = (task.notes || '') + `\n[ANSWER] ${answer.slice(0, 80)}`;
+
+  // Resume
+  task.status     = 'in_progress';
+  task.blocked_at = null;
+  saveStatus(data);
+  log('ANSWER', taskId, answer.slice(0, 80));
+
+  console.log(`${SYM.OK} Answer written to ${questionsFile}`);
+  console.log(`${SYM.NOTE} Task ${taskId} is back to in_progress.`);
+  console.log(`  Re-spawn the agent with:  node .orch/cli.js --spawn ${taskId}\n`);
+}
+
+/**
+ * cmdAttention()
+ *
+ * Shows only tasks that need human input right now.
+ * Run this to quickly see what's waiting on you.
+ */
+function cmdAttention() {
+  const data  = loadStatus();
+  const tasks = getTasks(data);
+
+  const waiting = Object.entries(tasks).filter(([, t]) => t.status === 'waiting_input');
+  const failed  = Object.entries(tasks).filter(([, t]) => t.status === 'failed');
+
+  if (waiting.length === 0 && failed.length === 0) {
+    console.log(`${SYM.OK} Nothing needs your attention right now.\n`);
+    return;
+  }
+
+  if (waiting.length > 0) {
+    console.log(`\n${COLORS.bold}Waiting for your input (${waiting.length})${COLORS.reset}\n`);
+    for (const [id, task] of waiting) {
+      // Pull the question text out of notes
+      const question = (task.notes || '').split('[QUESTION]').pop()?.trim().split('\n')[0] || '(see QUESTIONS.md)';
+      console.log(`  ${'\x1b[35m'}[?]${COLORS.reset} ${id.padEnd(20)} ${task.title}`);
+      console.log(`       Question: ${question}`);
+      console.log(`       Answer:   node .orch/cli.js --answer ${id} "<your answer>"\n`);
+    }
+  }
+
+  if (failed.length > 0) {
+    console.log(`\n${COLORS.bold}Failed tasks (${failed.length})${COLORS.reset}\n`);
+    for (const [id, task] of failed) {
+      const reason = (task.notes || '').split('[FAIL]').pop()?.trim().split('\n')[0] || '(see notes)';
+      console.log(`  ${COLORS.red}[FAIL]${COLORS.reset} ${id.padEnd(20)} ${task.title}`);
+      console.log(`       Reason:  ${reason}`);
+      console.log(`       Retry:   node .orch/cli.js --abort ${id} && node .orch/cli.js --spawn ${id}\n`);
+    }
+  }
+}
+
+// ─── CLI wiring (paste into arg-parsing block in cli.js) ──────────────────────
+//
+//   } else if (arg === '--question') {
+//     const taskId  = argv[++i];
+//     const summary = argv[++i];
+//     cmdQuestion(taskId, summary);
+//
+//   } else if (arg === '--answer') {
+//     const taskId = argv[++i];
+//     const answer = argv[++i];
+//     cmdAnswer(taskId, answer);
+//
+//   } else if (arg === '--attention') {
+//     cmdAttention();
+//
+// Also add 'waiting_input' to the meta.statuses array in AGENT_STATUS.json.

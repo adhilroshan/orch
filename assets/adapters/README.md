@@ -123,3 +123,53 @@ Each adapter can have a config block under `adapters.<name>`:
 ```
 
 This config is passed as `context.config` to `launch()` and `check()`.
+
+---
+
+## Child-Aware Adapters (optional)
+
+Adapters do **not** need to change to support hierarchical spawning.  Children
+are just tasks — they flow through the same `launch()` path.
+
+However, if you want an adapter to behave differently when it is launching a
+*child* task (e.g. use a shorter briefing prompt, skip the interactive UI,
+or connect back to a parent session), you can inspect `context.task.parent_task`:
+
+```js
+launch(context) {
+  const isChild = !!context.task.parent_task;
+
+  const prompt = isChild
+    ? `You are ${context.agentName} working on child task ${context.taskId}.\n` +
+      `Parent task: ${context.task.parent_task}\n` +
+      fs.readFileSync(context.briefPath, 'utf8')
+    : buildFullPrompt(context);   // your normal prompt builder
+
+  // ...launch the process as usual...
+}
+```
+
+### Headless children
+
+The most common pattern is: interactive parent + headless children.
+
+```json
+{
+  "default_adapter": "claude-code",
+  "adapters": {
+    "claude-code": { "headless": false },
+    "claude-code-headless": { "executable": "claude", "headless": true }
+  }
+}
+```
+
+Then spawn children with `--adapter claude-code-headless`, or in agent-api.js:
+
+```js
+api.spawnChild(parentId, taskDef, { adapter: 'claude-code-headless' });
+```
+
+### Checking child status from an adapter
+
+Adapters can call `node .orch/agent-api.js status <childId>` in their
+`check()` implementation to get richer status than a PID poll.
