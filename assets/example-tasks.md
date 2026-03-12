@@ -73,7 +73,7 @@ Use pytest fixtures for test DB — never hit production DB.
 Implement: GET /tasks, POST /tasks, GET /tasks/:id, PATCH /tasks/:id, DELETE /tasks/:id.
 All endpoints require auth. Tasks are scoped to the authenticated user.
 PATCH accepts partial updates (title, status, priority). DELETE returns 204.
-When schema is finalised, run: `python orchestrator.py --note API-2 "Schema final: {id, title, status, priority, user_id, created_at}. UI-2 can switch from mocks."`
+When schema is finalised, run: `node .orch/cli.js --note API-2 "Schema final: {id, title, status, priority, user_id, created_at}. UI-2 can switch from mocks."`
 
 ---
 
@@ -97,7 +97,7 @@ This unblocks all frontend work before the real API is ready.
 **Output files:** `frontend/src/pages/TaskList.tsx`, `frontend/src/pages/TaskDetail.tsx`, `frontend/src/api/tasks.ts`
 **Definition of Done:** Task list renders, clicking a task opens detail, edit saves successfully — all against real API.
 
-NOTE: Run `python orchestrator.py --show API-2` before switching from mocks to real API
+NOTE: Run `node .orch/cli.js --show API-2` before switching from mocks to real API
 calls — Sara's note on API-2 will confirm the final response schema when it's ready.
 Implement optimistic updates on status change. Show loading and error states.
 

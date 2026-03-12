@@ -1,11 +1,11 @@
 ---
-name: agent-orchestration
+name: orch
 description: Sets up a complete multi-agent task orchestration system using Node.js and Git Worktrees. Creates isolated development environments for each agent while tracking dependencies, file ownership, and project-wide progress. Use this skill for planning implementation tasks, coordinating parallel work, and managing agent handoffs in complex projects. Trigger for "plan this project", "orchestrate agents", or "split work into tasks".
 ---
 
 # Agent Orchestration Skill
 
-This skill implements a high-integrity multi-agent orchestration system. It uses **Node.js** for coordination and **Git Worktrees** to provide each agent with an isolated working directory, preventing local file collisions and git conflicts.
+This skill implements a multi-agent orchestration system. It uses **Node.js** for coordination and **Git Worktrees** to provide isolated working directories when tasks run in parallel, preventing local file collisions and reducing git conflicts.
 
 ## Output Files
 
@@ -13,11 +13,12 @@ This skill implements a high-integrity multi-agent orchestration system. It uses
 |---|---|
 | `.orch/plan/TASKS.md` | Human-readable specification of all tasks and dependencies. |
 | `.orch/plan/AGENT_STATUS.json` | Initial state source (imported by the orchestrator during `--init`). |
-| `.orch/cli.js` | The Node.js orchestrator (created by copying `references/orchestrator-template.js`). |
+| `.orch/cli.js` | The Node.js orchestrator (created by copying `assets/orchestrator-template.js`). |
+| `.orch/commit-log.json` | Append-only ledger of commits made by each agent, including task id, branch, timestamp, and commit SHA. |
 | `CLAUDE.md` | Agent handbook - keeps the team on track with roles and protocol. |
-| `orch` | Tiny root wrapper script to run the orchestrator easily (`./orch`). |
+| `orch`, `orch.cmd`, `orch.ps1` | Root wrapper scripts to run the orchestrator across Unix-like shells, `cmd.exe`, and PowerShell. |
 
-After creating the plan files, agents run `./orch --init` to bootstrap the project state.
+After creating the plan files, run `node .orch/cli.js --init` or the generated wrapper for your shell to bootstrap the project state.
 
 ## Prerequisites
 
@@ -36,6 +37,7 @@ project-root/
   .orch/
     plan/               (Source of Truth: TASKS.md and AGENT_STATUS.json)
     status.json         (Live Machine State: managed by orchestrator)
+    commit-log.json     (Append-only ledger of task completion commits)
     notes/              (Append-only per-task markdown threads)
     orch.log            (Audit trail of every operation)
     worktrees/          (Isolated workspaces for parallel work)
@@ -58,7 +60,7 @@ Before writing tasks:
 A task is "atomic" if it can be finished in 1--2 hours.
 * **Exclusive Ownership:** Every file path must be owned by exactly one task.
 * **DoD Enforcement:** Add a `test_command` to tasks to enforce quality before completion.
-* **Parallel Safety:** Run `./orch --validate` to check for file ownership collisions in the same phase.
+* **Parallel Safety:** Run `node .orch/cli.js --validate` to check for missing dependencies and file ownership collisions within a phase.
 
 ---
 
@@ -66,24 +68,29 @@ A task is "atomic" if it can be finished in 1--2 hours.
 
 The orchestrator automatically handles the complexity of parallel work:
 
-1. **`./orch --init`**: Bootstraps the system and moves any legacy root files to `.orch/plan/`.
+1. **`node .orch/cli.js --init`**: Bootstraps the system, validates the plan, and moves any legacy root plan files into `.orch/plan/`.
 2. **`./orch --start <ID>`**: 
    * Starts in **Local Mode** (root directory) if no other tasks are running.
-   * Starts in **Parallel Mode** (Worktree) if other tasks are already active.
+   * Starts in **Parallel Mode** (Worktree) if other tasks are already active or if `--worktree` is passed.
+   * Blocks start if dependencies are not complete.
    * Presents **Upstream Handoff Notes** immediately upon start.
-3. **`./orch --done <ID>`**: Runs `test_command`, commits changes, and unblocks dependents.
+3. **`./orch --done <ID>`**: Runs `test_command`, blocks unauthorized file edits, commits changes, and unblocks dependents.
+   * Records the resulting commit in `.orch/commit-log.json`.
 
 ---
 
 ## CLI Reference
 
 ```bash
-./orch                   # Dashboard grouped by phase
-./orch --init            # Bootstrap state from .orch/plan/
-./orch --validate        # Verify parallel safety and plan integrity
-./orch --stats           # View project velocity and analytics
-./orch --start <ID>      # Start task (Smart Workspace + Handoffs)
-./orch --done <ID>       # Enforce DoD, commit, and mark complete
-./orch --graph           # Output Mermaid.js dependency graph
-./orch --note <ID> <MSG> # Add timestamped handoff note
+node .orch/cli.js                   # Dashboard grouped by phase
+node .orch/cli.js --init            # Bootstrap state from .orch/plan/
+node .orch/cli.js --validate        # Verify plan integrity and ownership collisions
+node .orch/cli.js --stats           # View project velocity and analytics
+node .orch/cli.js --start <ID>      # Start task (Smart Workspace + Handoffs)
+node .orch/cli.js --done <ID>       # Enforce DoD, ownership, commit, and mark complete
+node .orch/cli.js --graph           # Output Mermaid.js dependency graph
+node .orch/cli.js --note <ID> <MSG> # Add timestamped handoff note
+node .orch/cli.js --notes <ID>      # Read notes for a task
 ```
+
+Completion commits use the format `<agent>(<TASK-ID>): <task title>`.
