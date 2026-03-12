@@ -347,3 +347,263 @@ function createMissionBrief(workDir, task, id) {
   }
   return briefPath;
 }
+
+
+// ─── Hierarchical Agent Management ───────────────────────────────────────────
+//
+// These functions extend the orchestrator to support parent-agent → child-agent
+// spawning.  A running agent can call agent-api.js (or use spawnChild() from
+// the module) to create sub-tasks under itself.  The resolve() function now
+// also checks whether a parent task's children are all complete and, if so,
+// marks the parent's wait as satisfied so it can be marked done.
+//
+// status.json additions:
+//   task.parent_task  string | null  — ID of the task that spawned this one
+//   task.children     string[]       — IDs of tasks this task spawned
+//
+// No changes to the adapter interface — adapters still just call launch() and
+// check().  The hierarchy lives entirely in status.json + the CLI.
+
+/**
+ * resolveHierarchy(data)
+ *
+ * After any status mutation, scan every task that has children.
+ * If ALL children are complete, add a note on the parent indicating
+ * children are done so the parent agent can call --done on itself.
+ * If ANY child has failed, add a warning note.
+ *
+ * Returns an array of parent IDs whose children just all completed.
+ */
+function resolveHierarchy(data) {
+  const justFinished = [];
+
+  for (const [id, task] of Object.entries(data)) {
+    if (id === 'meta') continue;
+    const children = task.children ?? [];
+    if (children.length === 0) continue;
+    if (task.status === 'complete' || task.status === 'failed') continue;
+
+    const statuses  = children.map(cid => data[cid]?.status ?? 'unknown');
+    const allDone   = statuses.every(s => s === 'complete' || s === 'failed');
+    const anyFailed = statuses.some(s => s === 'failed');
+
+    if (!allDone) continue;
+
+    // Don't double-notify
+    const noteFile = path.join(NOTES_DIR, `${id}.md`);
+    const existing = fs.existsSync(noteFile) ? fs.readFileSync(noteFile, 'utf8') : '';
+    if (existing.includes('[CHILDREN COMPLETE]') || existing.includes('[CHILDREN FAILED]')) continue;
+
+    const tag = anyFailed ? '[CHILDREN FAILED]' : '[CHILDREN COMPLETE]';
+    const summary = children.map(cid => `  ${cid}: ${data[cid]?.status}`).join('\n');
+    const note = `${tag} at ${ts()}\n${summary}\n\nAll sub-tasks have settled. You may now call --done on task ${id}.`;
+
+    ensureDir(NOTES_DIR);
+    fs.appendFileSync(noteFile, '\n---\n' + note + '\n', 'utf8');
+    data[id].notes = (data[id].notes ? data[id].notes + '\n' : '') + tag;
+
+    justFinished.push(id);
+    log('CHILDREN', id, anyFailed ? 'some failed' : 'all complete');
+  }
+
+  return justFinished;
+}
+
+/**
+ * cmdSpawnChild(parentId, taskDef, adapterOverride)
+ *
+ * CLI handler for:  node cli.js --spawn-child <parentId> --title "..." ...
+ *
+ * Creates the child task in status.json and immediately spawns it.
+ */
+function cmdSpawnChild(parentId, flags) {
+  const data   = loadStatus();
+  const parent = data[parentId];
+  if (!parent) {
+    console.error(`${SYM.FAIL} Parent task "${parentId}" not found.`);
+    process.exit(1);
+  }
+
+  const title       = flags.title;
+  const agentName   = flags.agent;
+  const outputFiles = flags.files ? flags.files.split(',').map(s => s.trim()) : [];
+  const dependsOn   = flags['depends-on'] ? flags['depends-on'].split(',').map(s => s.trim()) : [];
+
+  if (!title || !agentName || outputFiles.length === 0) {
+    console.error(`${SYM.FAIL} --spawn-child requires --title, --agent, and --files.`);
+    process.exit(1);
+  }
+
+  const existing  = Object.keys(data).filter(k => k !== 'meta' && k.startsWith(parentId + '.c'));
+  const childIdx  = existing.length + 1;
+  const childId   = `${parentId}.c${childIdx}`;
+
+  data[childId] = {
+    title,
+    agent:            agentName,
+    phase:            flags.phase ? Number(flags.phase) : (parent.phase ?? 1),
+    status:           'ready',
+    depends_on:       dependsOn,
+    output_files:     outputFiles,
+    resources:        flags.resources ? flags.resources.split(',').map(s => s.trim()) : [],
+    definition_of_done: flags.done ?? title,
+    notes:            '',
+    completed_at:     null,
+    parent_task:      parentId,
+    children:         [],
+  };
+
+  parent.children = parent.children ?? [];
+  parent.children.push(childId);
+
+  saveStatus(data);
+  console.log(`${SYM.SPAWN} Created child task ${childId} under ${parentId}`);
+
+  // Delegate to --spawn so adapter logic stays in one place
+  const cfg     = loadConfig();
+  const adapter = flags.adapter || cfg.default_adapter;
+  spawnTask(childId, adapter, flags.headless === 'true');
+}
+
+
+/**
+ * cmdListChildren(parentId)
+ *
+ * CLI handler for: node cli.js --children <parentId>
+ * Shows each child's ID, status, and title.
+ */
+function cmdListChildren(parentId) {
+  const data   = loadStatus();
+  const parent = data[parentId];
+  if (!parent) {
+    console.error(`${SYM.FAIL} Task "${parentId}" not found.`);
+    process.exit(1);
+  }
+
+  const children = parent.children ?? [];
+  if (children.length === 0) {
+    console.log(`No children for ${parentId}.`);
+    return;
+  }
+
+  console.log(`\n${COLORS.bold}Children of ${parentId}${COLORS.reset}  (${children.length} total)\n`);
+  for (const cid of children) {
+    const child  = data[cid];
+    const status = child?.status ?? 'unknown';
+    const col    = STATUS_COLORS[status] || COLORS.reset;
+    const indent = cid.split('.').length > 2 ? '    '.repeat(cid.split('.').length - 2) : '';
+    console.log(`  ${indent}${col}[${status.padEnd(11)}]${COLORS.reset} ${cid.padEnd(24)} ${child?.title ?? '(missing)'}`);
+
+    // Recurse one level for nested children
+    const grandchildren = child?.children ?? [];
+    for (const gcid of grandchildren) {
+      const gc  = data[gcid];
+      const gs  = gc?.status ?? 'unknown';
+      const gc2 = STATUS_COLORS[gs] || COLORS.reset;
+      console.log(`      ${gc2}[${gs.padEnd(11)}]${COLORS.reset} ${gcid.padEnd(24)} ${gc?.title ?? '(missing)'}`);
+    }
+  }
+  console.log('');
+}
+
+/**
+ * cmdAwaitChildren(parentId)
+ *
+ * CLI handler for: node cli.js --await-children <parentId>
+ *
+ * Polls status.json until all direct children of parentId are complete or
+ * failed, then exits 0 (all complete) or 1 (at least one failed).
+ * Useful in shell scripts that want to block the parent.
+ */
+async function cmdAwaitChildren(parentId) {
+  const POLL_MS = 4000;
+
+  function poll() {
+    const data     = loadStatus();
+    const parent   = data[parentId];
+    if (!parent) {
+      console.error(`${SYM.FAIL} Task "${parentId}" not found.`);
+      process.exit(1);
+    }
+    const children = parent.children ?? [];
+    if (children.length === 0) {
+      console.log(`${SYM.OK} No children for ${parentId} — nothing to wait on.`);
+      process.exit(0);
+    }
+
+    const statuses = children.map(cid => ({ id: cid, status: data[cid]?.status ?? 'unknown' }));
+    const pending  = statuses.filter(s => !['complete', 'failed'].includes(s.status));
+    const failed   = statuses.filter(s => s.status === 'failed');
+
+    process.stdout.write(`\r${SYM.WAIT} ${pending.length}/${children.length} children still running ...   `);
+
+    if (pending.length === 0) {
+      console.log('\n');
+      for (const s of statuses) {
+        const col = STATUS_COLORS[s.status] || COLORS.reset;
+        console.log(`  ${col}[${s.status.padEnd(11)}]${COLORS.reset} ${s.id}`);
+      }
+      if (failed.length > 0) {
+        console.log(`\n${SYM.FAIL} ${failed.length} child task(s) failed.`);
+        process.exit(1);
+      }
+      console.log(`\n${SYM.OK} All children of ${parentId} complete.`);
+      process.exit(0);
+    }
+
+    setTimeout(poll, POLL_MS);
+  }
+
+  poll();
+}
+
+/**
+ * Hook resolveHierarchy into the existing resolve() call.
+ *
+ * Call this after every saveStatus() that changes a task's status to
+ * 'complete' or 'failed'.  It appends a note on the parent if all its
+ * children have settled, enabling the parent agent to self-complete.
+ */
+function afterStatusMutation(data) {
+  const parents = resolveHierarchy(data);
+  if (parents.length > 0) {
+    console.log(`${SYM.NOTE} Children settled → parent(s) notified: ${parents.join(', ')}`);
+  }
+  saveStatus(data);
+}
+
+// ─── CLI Dispatch Additions ───────────────────────────────────────────────────
+// Add these cases to your main arg-parsing switch / if-chain in cli.js:
+//
+//   --spawn-child <parentId> --title "..." --agent "..." --files "a.js,b.js"
+//                            [--phase N] [--depends-on "T1,T2"] [--done "..."]
+//                            [--resources "port:3000"] [--adapter claude-code]
+//
+//   --children <parentId>
+//
+//   --await-children <parentId>
+//
+// Example wiring (paste into the arg-parsing section of cli.js):
+//
+//   } else if (arg === '--spawn-child') {
+//     const parentId = argv[++i];
+//     const flags    = parseArgFlags(argv.slice(i + 1));
+//     cmdSpawnChild(parentId, flags);
+//
+//   } else if (arg === '--children') {
+//     cmdListChildren(argv[++i]);
+//
+//   } else if (arg === '--await-children') {
+//     cmdAwaitChildren(argv[++i]);
+
+// Export so agent-api.js can require these helpers when running in the same
+// Node process (e.g. for testing or embedding).
+if (typeof module !== 'undefined') {
+  module.exports = {
+    resolveHierarchy,
+    cmdSpawnChild,
+    cmdListChildren,
+    cmdAwaitChildren,
+    afterStatusMutation,
+  };
+}
