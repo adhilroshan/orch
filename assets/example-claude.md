@@ -72,16 +72,16 @@ node .orch/cli.js --note API-1 "Auth schema is stable. UI-1 can proceed."
 - `ui`: Start with `UI-1` (Mock API).
 - `infra`: Start with `INFRA-1` (Scaffolding).
 
-## Agent Handbooks
+## AI Tool Handbooks
 
-Each agent can have their own dedicated handbook that gets automatically symlinked into their workspace:
+Each AI tool natively reads its own designated handbook file when it starts in a project. Create these files in the project root to give each tool its own instructions:
 
-| File | Who Uses It |
+| File | AI Tool |
 |---|---|
-| `API.md` | The `api` agent |
-| `UI.md` | The `ui` agent |
-| `INFRA.md` | The `infra` agent |
-| `CLAUDE.md` | Fallback for any agent without a specific handbook |
-| `AGENTS.md` | Another fallback |
+| `CLAUDE.md` | Claude Code |
+| `GEMINI.md` | Gemini CLI |
+| `AGENT.md` | OpenCode |
+| `QWEN.md` | Qwen |
+| `AGENTS.md` | General fallback |
 
-When you run `--start`, the orchestrator looks for `{AGENT}.md` (uppercase) in the project root. If found, it symlinks it into your workspace. Falls back to `CLAUDE.md` or `AGENTS.md` if no agent-specific file exists.
+The AI tool automatically reads its file when it starts. No orchestrator involvement needed — just create the files in your project root.
