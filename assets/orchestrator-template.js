@@ -29,6 +29,7 @@ const SEP_LIGHT = '-'.repeat(72);
 
 const SYMLINK_DIRS = ['node_modules', '.venv', 'venv', 'vendor', 'target', 'dist'];
 const LEGACY_PLAN_FILES = ['TASKS.md', 'AGENT_STATUS.json'];
+const AGENT_HANDBOOK_FALLBACKS = ['CLAUDE.md', 'AGENTS.md', 'AGENT.md'];
 
 const SYM = {
   OK: '[OK]    ',
@@ -249,6 +250,39 @@ Generated at ${ts()}
   }
 }
 
+function linkAgentHandbook(workDir, task) {
+  const agentKey = task.agent?.toUpperCase();
+  if (!agentKey) return;
+
+  const handbookName = `${agentKey}.md`;
+  const handbookPath = path.join(ROOT, handbookName);
+
+  if (fs.existsSync(handbookPath)) {
+    const linkPath = path.join(workDir, handbookName);
+    if (!fs.existsSync(linkPath)) {
+      try {
+        fs.symlinkSync(path.relative(path.dirname(linkPath), handbookPath), linkPath, 'file');
+        log('LINK', task.agent, `Linked ${handbookName} to workspace`);
+      } catch (e) {}
+    }
+    return;
+  }
+
+  for (const fallback of AGENT_HANDBOOK_FALLBACKS) {
+    const fallbackPath = path.join(ROOT, fallback);
+    if (fs.existsSync(fallbackPath)) {
+      const linkPath = path.join(workDir, fallback);
+      if (!fs.existsSync(linkPath)) {
+        try {
+          fs.symlinkSync(path.relative(path.dirname(linkPath), fallbackPath), linkPath, 'file');
+          log('LINK', task.agent, `Linked ${fallback} as fallback to workspace`);
+        } catch (e) {}
+      }
+      return;
+    }
+  }
+}
+
 function getChangedFiles(workDir) {
   const output = runGit('git status --porcelain', { cwd: workDir });
   return output
@@ -261,8 +295,10 @@ function verifyOwnership(workDir, allowedFiles) {
   if (!allowedFiles || allowedFiles.length === 0) return [];
 
   const changedFiles = getChangedFiles(workDir);
+  const ignoredFiles = ['HANDOFF.md', 'MISSION_BRIEF.md', ...AGENT_HANDBOOK_FALLBACKS];
   return changedFiles.filter((file) => {
-    if (file === 'HANDOFF.md' || file === 'MISSION_BRIEF.md') return false;
+    if (ignoredFiles.includes(file)) return false;
+    if (/^[A-Z][A-Z0-9_-]*\.MD$/.test(file)) return false;
     return !allowedFiles.includes(file);
   });
 }
@@ -510,6 +546,7 @@ function startTask(id, forceWorktree = false) {
     }
 
     createMissionBrief(workDir, task, id);
+    linkAgentHandbook(workDir, task);
     task.status = 'in_progress';
     task.started_at = ts();
     saveStatus(data);

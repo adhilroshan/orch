@@ -71,3 +71,17 @@ node .orch/cli.js --note API-1 "Auth schema is stable. UI-1 can proceed."
 - `api`: Start with `API-1` (User Auth).
 - `ui`: Start with `UI-1` (Mock API).
 - `infra`: Start with `INFRA-1` (Scaffolding).
+
+## Agent Handbooks
+
+Each agent can have their own dedicated handbook that gets automatically symlinked into their workspace:
+
+| File | Who Uses It |
+|---|---|
+| `API.md` | The `api` agent |
+| `UI.md` | The `ui` agent |
+| `INFRA.md` | The `infra` agent |
+| `CLAUDE.md` | Fallback for any agent without a specific handbook |
+| `AGENTS.md` | Another fallback |
+
+When you run `--start`, the orchestrator looks for `{AGENT}.md` (uppercase) in the project root. If found, it symlinks it into your workspace. Falls back to `CLAUDE.md` or `AGENTS.md` if no agent-specific file exists.
