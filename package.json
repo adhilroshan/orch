@@ -1,16 +1,17 @@
 {
   "name": "orch",
   "version": "1.0.0",
-  "description": "The 'orch' skill: Multi-agent task orchestration system for Gemini CLI",
+  "description": "Multi-agent task orchestration skill for AI coding assistants",
   "type": "commonjs",
   "scripts": {
     "link": "bash skills.sh"
   },
   "keywords": [
-    "gemini-cli",
     "agent-skills",
     "orchestration",
-    "multi-agent"
+    "multi-agent",
+    "ai-coding",
+    "git-worktrees"
   ],
   "author": "",
   "license": "MIT"
