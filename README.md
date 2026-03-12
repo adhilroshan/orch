@@ -29,9 +29,8 @@ When multiple AI agents work on the same codebase, things break:
 ## Quick Start
 
 ```bash
-# 1. Install the skill (varies by agent tool)
-#    OpenCode:  install via skill manager
-#    Gemini:    gemini skills link /path/to/agent-orchestration
+# 1. Install the skill (works with any skills.sh-compatible agent)
+npx skills add adhilroshan/orch
 
 # 2. Ask your agent to plan a project
 #    "Plan this project using the orch skill"
@@ -45,6 +44,16 @@ node .orch/cli.js --init
 ./orch --start API-1          # Unix
 .\orch.cmd --start API-1      # Windows
 ```
+
+## Installation
+
+Install via [skills.sh](https://skills.sh):
+
+```bash
+npx skills add adhilroshan/orch
+```
+
+Works with OpenCode, Claude Code, Gemini CLI, Cursor, Windsurf, Cline, and any agent supporting skills.sh.
 
 ## CLI Reference
 
