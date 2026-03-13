@@ -7,6 +7,8 @@ description: Use when coordinating multiple AI agents on the same codebase to pr
 
 Sets up a multi-agent task orchestration system using Node.js and Git Worktrees. Creates isolated environments while tracking dependencies, file ownership, and progress.
 
+**Keywords:** git worktree, task orchestration, multi-agent, parallel work, file ownership, dependency tracking, agent handoffs, task coordination
+
 ## When to Use
 
 - Planning tasks for complex projects
@@ -61,4 +63,13 @@ node .orch/cli.js --init
 | `./orch --summary <ID>` | View summary |
 | `./orch --graph` | Mermaid.js dependency graph |
 
-For complete CLI reference, task definition schema, agent personas, and file structure, see [orch-reference.md](./orch-reference.md).
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Tasks >2 hours | Split into atomic tasks |
+| Missing depends_on | Add task dependencies |
+| No test_command | Add verification command |
+| Skipping --init | Always bootstrap first |
+
+For complete reference, see [orch-reference.md](./orch-reference.md).
