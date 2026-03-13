@@ -75,17 +75,23 @@ Define in `AGENT_STATUS.json` `meta.agents` block:
 ```json
 {
   "meta": {
-    "project": "My Project",
     "agents": {
       "api": "Sara Kim -- Core API. Methodical and precise.",
       "ui": "Nina Osei -- Frontend. Strong accessibility instincts.",
-      "infra": "Raj Patel -- Infra & DevOps. Pragmatic and direct."
+      "infra": "Raj Patel -- DevOps. Pragmatic."
     }
   }
 }
 ```
 
 Personas give each agent a working style and communication pattern, not just a domain.
+
+## Agent Handbook
+
+Create an agent handbook (e.g., `CLAUDE.md` or `AGENTS.md`) in the project root to keep the team on track with roles and protocol. This document defines:
+- Agent roles and responsibilities
+- Communication patterns between agents
+- Shared conventions and coding standards
 
 ## Workspace Lifecycle
 
