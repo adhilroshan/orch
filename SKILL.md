@@ -20,22 +20,31 @@ Sets up a multi-agent task orchestration system using Node.js and Git Worktrees.
 - Projects with <5 tasks
 - Projects using another orchestration system
 
-## Output Files
+## Quick Start
 
-| File | Purpose |
-|---|---|
-| `.orch/plan/TASKS.md` | Task spec |
-| `.orch/plan/AGENT_STATUS.json` | Machine state |
-| `.orch/cli.js` | Orchestrator |
-| `.orch/commit-log.json` | Commit ledger |
+```bash
+# Install
+npx skills add adhilroshan/orch
 
-## Prerequisites
+# Ask agent to plan a project
+"Plan this project using the orch skill"
 
-- **Node.js**: Orchestrator script
-- **Git**: Worktree management
-- **Git Repository**: Must be initialized
+# Bootstrap
+node .orch/cli.js --init
 
-## Quick Reference
+# Start working
+./orch --start TASK-1
+```
+
+## Core Concepts
+
+- **Atomic Tasks**: Can finish in 1-2 hours
+- **File Ownership**: Each file owned by exactly one task
+- **DoD Enforcement**: Add `test_command` for verification
+- **Resource Locking**: Declare `["port:3000"]` to prevent conflicts
+- **Worktree Isolation**: Parallel tasks get isolated Git worktrees
+
+## CLI Reference
 
 | Command | Purpose |
 |---------|---------|
@@ -43,82 +52,13 @@ Sets up a multi-agent task orchestration system using Node.js and Git Worktrees.
 | `./orch --init` | Bootstrap from plan files |
 | `./orch --validate` | Check ownership collisions |
 | `./orch --stats` | Velocity analytics |
-| `./orch --start <ID>` | Start task (auto local/worktree) |
-| `./orch --start <ID> --worktree` | Force worktree mode |
+| `./orch --start <ID>` | Start task |
+| `./orch --start <ID> --worktree` | Force worktree |
 | `./orch --done <ID>` | Verify DoD, commit, complete |
-| `./orch --abort <ID>` | Reset in-progress task |
+| `./orch --abort <ID>` | Reset in-progress |
 | `./orch --note <ID> <MSG>` | Add note |
 | `./orch --notes <ID>` | Read notes |
-| `./orch --summary <ID>` | Summary |
+| `./orch --summary <ID>` | View summary |
 | `./orch --graph` | Mermaid.js dependency graph |
 
-## Step 1 -- Contextual Analysis
-
-1. Read core files
-2. Design team by domain
-3. Draft TASKS.md and AGENT_STATUS.json
-
-## Step 2 -- Atomic Tasks
-
-- **Atomic**: Can finish in 1-2 hours
-- **Ownership**: Each file owned by one task
-- **DoD**: Add `test_command` for verification
-- **Resources**: Declare `["port:3000"]` to prevent conflicts
-- **Validation**: Run `--validate` to check collisions
-
-## Step 3 -- Workspace Lifecycle
-
-1. **`--init`**: Bootstrap, validate plan, install pre-commit hook
-2. **`--start <ID>`**: 
-   - Local Mode if solo, Worktree if parallel
-   - Blocks if dependencies incomplete
-   - Generates MISSION_BRIEF.md
-3. **`--done <ID>`**: Run test_command, enforce ownership, commit, unblock dependents
-   - Save summary to `.orch/summaries/<ID>.md`
-   - Archive handoff to `.orch/notes/`
-
-## Common Mistakes
-
-| Mistake | Fix |
-|---------|-----|
-| Tasks >2 hours | Split into atomic tasks |
-| Missing depends_on | Add task dependencies |
-| No test_command | Add verification command |
-| Overlapping ownership | Run `--validate` first |
-| Skipping `--init` | Always bootstrap first |
-
-## Task Definition
-
-```json
-{
-  "TASK-ID": {
-    "title": "Task title",
-    "agent": "api",
-    "phase": 1,
-    "status": "ready",
-    "depends_on": ["OTHER-ID"],
-    "output_files": ["src/routes/auth.py"],
-    "definition_of_done": "Acceptance criteria",
-    "test_command": "pytest tests/test_auth.py",
-    "resources": ["port:3000"]
-  }
-}
-```
-
-## Agent Personas
-
-In `AGENT_STATUS.json` `meta.agents`:
-
-```json
-{
-  "meta": {
-    "agents": {
-      "api": "Sara Kim -- Core API. Methodical.",
-      "ui": "Nina Osei -- Frontend. Accessibility focus.",
-      "infra": "Raj Patel -- DevOps. Pragmatic."
-    }
-  }
-}
-```
-
-Commits: `<agent>(<TASK-ID>): <title>`
+For complete CLI reference, task definition schema, agent personas, and file structure, see [orch-reference.md](./orch-reference.md).
