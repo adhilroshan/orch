@@ -156,3 +156,13 @@ project-root/
 - **Node.js** (any recent version - zero npm dependencies)
 - **Git** (for branching and worktree management)
 - Target project must be a Git repository
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Tasks >2 hours | Split into atomic tasks |
+| Missing depends_on | Add task dependencies |
+| No test_command | Add verification command |
+| Overlapping ownership | Run `--validate` first |
+| Skipping `--init` | Always bootstrap first |
